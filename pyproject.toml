@@ -1,0 +1,25 @@
+[project]
+name = "async-pay-processing-service"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "S", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/*" = ["ANN", "E501"]
+"tests/*" = ["S101", "ANN", "SLF001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyrefly]
+project-includes = ["src", "tests"]
+search-path = ["."]
+python-version = "3.12"
+python-interpreter-path = ".venv/Scripts/python.exe"
