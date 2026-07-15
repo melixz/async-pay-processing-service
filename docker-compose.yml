@@ -1,0 +1,71 @@
+x-app-env: &app-env
+  API_KEY: ${API_KEY:-local-dev-secret-key}
+  DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments
+      POSTGRES_DB: payments
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      # Именованный том вместо анонимного: durable-очереди и DLQ переживают
+      # рестарт, а сам том чистится через docker compose down -v.
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      # su-exec обязателен: контейнер стартует под root, и healthcheck без него
+      # создаёт /var/lib/rabbitmq/.erlang.cookie с правами root:root 0400 раньше,
+      # чем сервер. Сервер работает под uid 100 и падает на ней с eacces.
+      test: ["CMD", "su-exec", "rabbitmq", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api:
+    build: .
+    command: sh -c "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000"
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  consumer:
+    build: .
+    command: faststream run src.consumer:app
+    environment: *app-env
+    depends_on:
+      # Ждём api, а не только postgres: иначе consumer стартует раньше, чем
+      # alembic upgrade head создаст таблицы.
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  rabbitmqdata:
